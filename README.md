@@ -1,3 +1,50 @@
+go-sqlite3-sqlcipher fork
+=========================
+
+This repository is a fork of [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)
+that adds SQLCipher support. The Go module path remains
+`github.com/mattn/go-sqlite3` so existing imports continue to work with a
+`replace` directive.
+
+Replace the module with this fork:
+
+```go
+require github.com/mattn/go-sqlite3 v1.14.47
+
+replace github.com/mattn/go-sqlite3 => github.com/BitBoxSwiss/go-sqlite3-sqlcipher <version>
+```
+
+Build with the `sqlcipher` tag to use the embedded SQLCipher amalgamation:
+
+```sh
+go build -tags sqlcipher ./...
+```
+
+The embedded `sqlcipher` tag uses these crypto providers:
+
+| Platform | Crypto provider | External runtime crypto dependency |
+| --- | --- | --- |
+| iOS/macOS | CommonCrypto via Apple frameworks | No |
+| Android | LibTomCrypt from the submodule source | No |
+| Linux | LibTomCrypt from the submodule source | No |
+| Windows | LibTomCrypt from the submodule source, with `advapi32` for RNG seeding | No OpenSSL DLL |
+| `libsqlcipher` tag | Determined by the linked external `libsqlcipher` | Depends on that library |
+
+Initialize the LibTomCrypt submodule when working on the fork:
+
+```sh
+git submodule update --init
+```
+
+The fork checks in generated LibTomCrypt binding files under
+`internal/libtomcrypt` so downstream `go mod vendor` users can build with
+`-mod=vendor` without initializing this submodule.
+
+This fork is based on the original work by Yasuhiro Matsumoto and the
+`mattn/go-sqlite3` contributors. SQLCipher support is based on
+[PR #1109](https://github.com/mattn/go-sqlite3/pull/1109) by
+[jgiannuzzi](https://github.com/jgiannuzzi).
+
 go-sqlite3
 ==========
 
@@ -41,9 +88,12 @@ This package follows the official [Golang Release Policy](https://golang.org/doc
   - [macOS](#mac-osx)
   - [Windows](#windows)
   - [Errors](#errors)
-- [User Authentication](#user-authentication)
+- [Encryption](#encryption)
   - [Compile](#compile)
   - [Usage](#usage-1)
+- [User Authentication](#user-authentication)
+  - [Compile](#compile-1)
+  - [Usage](#usage-2)
     - [Create protected database](#create-protected-database)
     - [Password Encoding](#password-encoding)
       - [Available Encoders](#available-encoders)
@@ -106,11 +156,17 @@ Boolean values can be one of:
 | Auto Vacuum | `_auto_vacuum` \| `_vacuum` | <ul><li>`0` \| `none`</li><li>`1` \| `full`</li><li>`2` \| `incremental`</li></ul> | For more information see [PRAGMA auto_vacuum](https://www.sqlite.org/pragma.html#pragma_auto_vacuum) |
 | Busy Timeout | `_busy_timeout` \| `_timeout` | `int` | Specify value for sqlite3_busy_timeout. For more information see [PRAGMA busy_timeout](https://www.sqlite.org/pragma.html#pragma_busy_timeout) |
 | Case Sensitive LIKE | `_case_sensitive_like` \| `_cslike` | `boolean` | For more information see [PRAGMA case_sensitive_like](https://www.sqlite.org/pragma.html#pragma_case_sensitive_like) |
+| Cipher Compatibility | `_cipher_compatibility` | `int` | For more information see [PRAGMA cipher_compatibility](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_compatibility) |
+| Cipher Migrate | `_cipher_migrate` | - | For more information see [PRAGMA cipher_migrate](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_migrate) |
+| Cipher Page Size | `_cipher_page_size` | `int` | For more information see [PRAGMA cipher_page_size](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_page_size) |
+| Cipher Plaintext Header Size | `_cipher_plaintext_header_size` | `int` | For more information see [PRAGMA cipher_plaintext_header_size](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_plaintext_header_size) |
+| Cipher Use HMAC | `_cipher_use_hmac` | `int` | For more information see [PRAGMA cipher_use_hmac](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_use_hmac) |
 | Defer Foreign Keys | `_defer_foreign_keys` \| `_defer_fk` | `boolean` | For more information see [PRAGMA defer_foreign_keys](https://www.sqlite.org/pragma.html#pragma_defer_foreign_keys) |
 | Foreign Keys | `_foreign_keys` \| `_fk` | `boolean` | For more information see [PRAGMA foreign_keys](https://www.sqlite.org/pragma.html#pragma_foreign_keys) |
 | Ignore CHECK Constraints | `_ignore_check_constraints` | `boolean` | For more information see [PRAGMA ignore_check_constraints](https://www.sqlite.org/pragma.html#pragma_ignore_check_constraints) |
 | Immutable | `immutable` | `boolean` | For more information see [Immutable](https://www.sqlite.org/c3ref/open.html) |
 | Journal Mode | `_journal_mode` \| `_journal` | <ul><li>DELETE</li><li>TRUNCATE</li><li>PERSIST</li><li>MEMORY</li><li>WAL</li><li>OFF</li></ul> | For more information see [PRAGMA journal_mode](https://www.sqlite.org/pragma.html#pragma_journal_mode) |
+| Encryption Key | `_key` | `string` | Sets the database encryption key to use with [SQLCipher](https://github.com/sqlcipher/sqlcipher). For more information see [PRAGMA key](https://www.zetetic.net/sqlcipher/sqlcipher-api/#PRAGMA_key)
 | Locking Mode | `_locking_mode` \| `_locking` | <ul><li>NORMAL</li><li>EXCLUSIVE</li></ul> | For more information see [PRAGMA locking_mode](https://www.sqlite.org/pragma.html#pragma_locking_mode) |
 | Mode | `mode` | <ul><li>ro</li><li>rw</li><li>rwc</li><li>memory</li></ul> | Access Mode of the database. For more information see [SQLite Open](https://www.sqlite.org/c3ref/open.html) |
 | Mutex Locking | `_mutex` | <ul><li>no</li><li>full</li></ul> | Specify mutex mode. |
@@ -349,6 +405,18 @@ For example the TDM-GCC Toolchain can be found [here](https://jmeubank.github.io
     ```bash
     go install github.com/mattn/go-sqlite3
     ```
+
+# Encryption
+
+## Compile
+
+To use the database encryption feature, the package has to be compiled with the tags `sqlcipher` (to use the built-in implementation) or `libsqlcipher` (to link directly to libsqlcipher).
+
+The built-in implementation requires OpenSSL to be installed (`libssl-dev` or `openssl-devel` on Linux). It is not required on macOS, where CommonCrypto gets used and is part of the system.
+
+### Usage
+
+Pass your encryption key via the `_key` argument in the connection string. See the [SQLCipher documentation](https://www.zetetic.net/sqlcipher/sqlcipher-api/#PRAGMA_key) for more details.
 
 # User Authentication
 
@@ -593,6 +661,16 @@ sqlite3-binding.c, sqlite3-binding.h, sqlite3ext.h
 The -binding suffix was added to avoid build failures under gccgo.
 
 In this repository, those files are an amalgamation of code that was copied from SQLite3. The license of that code is the same as the license of SQLite3.
+
+sqlcipher-binding.c and sqlcipher-binding.h are an amalgamation of code that
+was copied from [SQLCipher](https://github.com/sqlcipher/sqlcipher). See
+[LICENSE.SQLCIPHER](./LICENSE.SQLCIPHER) for the SQLCipher copyright notice
+and license terms.
+
+internal/libtomcrypt contains generated files copied from
+[LibTomCrypt](https://github.com/sqlcipher/libtomcrypt). See
+[LICENSE.LIBTOMCRYPT](./LICENSE.LIBTOMCRYPT) for the LibTomCrypt license
+terms.
 
 # Author
 

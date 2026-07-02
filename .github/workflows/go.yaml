@@ -36,6 +36,8 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: 'Tags: default'
         run: go-acc . -- -race -v -tags ""
@@ -48,6 +50,9 @@ jobs:
 
       - name: 'Tags: vacuum'
         run: go-acc . -- -race -v -tags "sqlite_vacuum_full"
+
+      - name: 'Tags: sqlcipher'
+        run: go-acc . -- -race -v -tags "sqlcipher"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -87,6 +92,8 @@ jobs:
         shell: msys2 {0}
 
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: 'Tags: default'
         run: go build -race -v -tags ""
@@ -104,6 +111,10 @@ jobs:
 
       - name: 'Tags: vacuum'
         run: go build -race -v -tags "sqlite_vacuum_full"
+        shell: msys2 {0}
+
+      - name: 'Tags: sqlcipher'
+        run: go build -race -v -tags "sqlcipher"
         shell: msys2 {0}
 
       - name: Upload coverage to Codecov

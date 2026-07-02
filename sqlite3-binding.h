@@ -1,4 +1,4 @@
-#ifndef USE_LIBSQLITE3
+#if !defined(USE_LIBSQLITE3) && !defined(USE_LIBSQLCIPHER) && !defined(USE_SQLCIPHER)
 /*
 ** 2001-09-15
 **
@@ -14346,7 +14346,7 @@ struct fts5_api {
 
 /******** End of fts5.h *********/
 #endif /* SQLITE3_H */
-#else // USE_LIBSQLITE3
+#else // USE_LIBSQLITE3 || USE_LIBSQLCIPHER || USE_SQLCIPHER
  // If users really want to link against the system sqlite3 we
 // need to make this file a noop.
  #endif
